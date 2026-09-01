@@ -1,0 +1,4 @@
+# Koszt ZA KAŻDE zaproszenie (/g zapros <nick> oraz klik różdżką).
+# Różdżka (/g zapros wand) jest darmowa — opłata dopiero przy kliknięciu na gracza.
+invite-cost:
+  DIAMOND: 4
