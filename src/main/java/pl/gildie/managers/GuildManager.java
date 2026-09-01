@@ -1,11 +1,14 @@
 package pl.gildie.managers;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import pl.gildie.model.Guild;
+import pl.gildie.util.WaypointHook;
 
 import java.io.File;
 import java.io.IOException;
@@ -59,6 +62,51 @@ public class GuildManager {
             for (String member : members) {
                 guild.addMember(UUID.fromString(member));
             }
+            List<String> deputies = config.getStringList(path + ".deputies");
+            for (String d : deputies) {
+                try {
+                    guild.addDeputy(UUID.fromString(d));
+                } catch (Exception ignored) {
+                }
+            }
+
+            if (config.contains(path + ".home.world")) {
+                guild.loadHome(
+                        config.getString(path + ".home.world"),
+                        config.getDouble(path + ".home.x"),
+                        config.getDouble(path + ".home.y"),
+                        config.getDouble(path + ".home.z")
+                );
+            }
+
+            if (config.contains(path + ".raid.world")) {
+                long exp = config.getLong(path + ".raid.expires", 0);
+                UUID wpId = null;
+                String wpStr = config.getString(path + ".raid.waypoint");
+                if (wpStr != null && !wpStr.isBlank()) {
+                    try {
+                        wpId = UUID.fromString(wpStr);
+                    } catch (Exception ignored) {
+                    }
+                }
+                guild.loadRaidBase(
+                        config.getString(path + ".raid.world"),
+                        config.getDouble(path + ".raid.x"),
+                        config.getDouble(path + ".raid.y"),
+                        config.getDouble(path + ".raid.z"),
+                        exp,
+                        wpId
+                );
+            }
+
+            String gwp = config.getString(path + ".guild-waypoint");
+            if (gwp != null && !gwp.isBlank()) {
+                try {
+                    guild.setGuildWaypointId(UUID.fromString(gwp));
+                } catch (Exception ignored) {
+                }
+            }
+
             guilds.put(tag.toUpperCase(), guild);
         }
     }
@@ -78,6 +126,33 @@ public class GuildManager {
                 members.add(uuid.toString());
             }
             config.set(path + ".members", members);
+            List<String> deputies = new ArrayList<>();
+            for (UUID uuid : guild.getDeputies()) {
+                deputies.add(uuid.toString());
+            }
+            config.set(path + ".deputies", deputies);
+
+            if (guild.hasHome()) {
+                config.set(path + ".home.world", guild.getHomeWorld());
+                config.set(path + ".home.x", guild.getHomeX());
+                config.set(path + ".home.y", guild.getHomeY());
+                config.set(path + ".home.z", guild.getHomeZ());
+            }
+
+            if (guild.getRaidWorld() != null && guild.getRaidExpiresAt() > 0) {
+                config.set(path + ".raid.world", guild.getRaidWorld());
+                config.set(path + ".raid.x", guild.getRaidX());
+                config.set(path + ".raid.y", guild.getRaidY());
+                config.set(path + ".raid.z", guild.getRaidZ());
+                config.set(path + ".raid.expires", guild.getRaidExpiresAt());
+                if (guild.getRaidWaypointId() != null) {
+                    config.set(path + ".raid.waypoint", guild.getRaidWaypointId().toString());
+                }
+            }
+
+            if (guild.getGuildWaypointId() != null) {
+                config.set(path + ".guild-waypoint", guild.getGuildWaypointId().toString());
+            }
         }
         try {
             config.save(file);
@@ -96,6 +171,30 @@ public class GuildManager {
         }
         Guild guild = new Guild(tag, owner, center, radius);
         guilds.put(tag, guild);
+        save();
+
+        // WP gildyjny na środku, Y=70
+        Location wpLoc = guild.getCenterAtY(70);
+        Player leader = Bukkit.getPlayer(owner);
+        if (wpLoc != null && leader != null && leader.isOnline()) {
+            WaypointHook.addGuildWaypoint(leader, "Gildia " + tag, wpLoc, 0x55FF55)
+                    .ifPresent(guild::setGuildWaypointId);
+        } else if (wpLoc != null) {
+            WaypointHook.addGuildWaypoint(tag, "Gildia " + tag, wpLoc, 0x55FF55)
+                    .ifPresent(guild::setGuildWaypointId);
+        }
+        save();
+        return true;
+    }
+
+    public boolean disband(Guild guild) {
+        if (guild.getGuildWaypointId() != null) {
+            WaypointHook.removeGuildWaypoint(guild.getGuildWaypointId());
+        }
+        if (guild.getRaidWaypointId() != null) {
+            WaypointHook.removeGuildWaypoint(guild.getRaidWaypointId());
+        }
+        guilds.remove(guild.getTag());
         save();
         return true;
     }
@@ -122,7 +221,67 @@ public class GuildManager {
         return null;
     }
 
+    /** Najbliższa obca gildia (po dystansie do granicy). */
+    public Guild getNearestEnemyGuild(Location loc, Guild own) {
+        Guild best = null;
+        double bestDist = Double.MAX_VALUE;
+        for (Guild g : guilds.values()) {
+            if (own != null && g.getTag().equals(own.getTag())) {
+                continue;
+            }
+            double d = g.distanceToBorder(loc);
+            // d może być ujemne (wewnątrz) — interesuje nas bliskość
+            double abs = Math.abs(d);
+            if (abs < bestDist) {
+                bestDist = abs;
+                best = g;
+            }
+        }
+        return best;
+    }
+
+    /** Czy lokacja jest w pobliżu obcego terenu (w promieniu maxNear od granicy). */
+    public boolean isNearEnemyTerritory(Location loc, Guild own, double maxNear) {
+        for (Guild g : guilds.values()) {
+            if (own != null && g.getTag().equals(own.getTag())) {
+                continue;
+            }
+            double d = g.distanceToBorder(loc);
+            // wewnątrz obcego lub w odległości maxNear od granicy
+            if (d <= maxNear) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public Guild getRaidBaseOwnerAt(Location loc) {
+        for (Guild g : guilds.values()) {
+            if (g.isRaidBaseBlock(loc)) {
+                return g;
+            }
+        }
+        return null;
+    }
+
     public Collection<Guild> getAll() {
         return guilds.values();
+    }
+
+    public void tickRaidBases() {
+        long now = System.currentTimeMillis();
+        boolean changed = false;
+        for (Guild g : guilds.values()) {
+            if (g.getRaidExpiresAt() > 0 && g.getRaidExpiresAt() <= now) {
+                if (g.getRaidWaypointId() != null) {
+                    WaypointHook.removeGuildWaypoint(g.getRaidWaypointId());
+                }
+                g.clearRaidBase();
+                changed = true;
+            }
+        }
+        if (changed) {
+            save();
+        }
     }
 }
