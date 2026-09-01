@@ -107,6 +107,9 @@ public class GuildManager {
                 }
             }
 
+            java.util.List<String> alliesList = config.getStringList(path + ".allies");
+            guild.loadAllies(alliesList);
+
             guilds.put(tag.toUpperCase(), guild);
         }
     }
@@ -153,6 +156,8 @@ public class GuildManager {
             if (guild.getGuildWaypointId() != null) {
                 config.set(path + ".guild-waypoint", guild.getGuildWaypointId().toString());
             }
+
+            config.set(path + ".allies", new java.util.ArrayList<>(guild.getAllies()));
         }
         try {
             config.save(file);
@@ -188,6 +193,13 @@ public class GuildManager {
     }
 
     public boolean disband(Guild guild) {
+        for (String allyTag : new java.util.HashSet<>(guild.getAllies())) {
+            Guild ally = getGuild(allyTag);
+            if (ally != null) {
+                ally.removeAlly(guild.getTag());
+            }
+        }
+        guild.getAllies().clear();
         if (guild.getGuildWaypointId() != null) {
             WaypointHook.removeGuildWaypoint(guild.getGuildWaypointId());
         }
@@ -247,8 +259,8 @@ public class GuildManager {
                 continue;
             }
             double d = g.distanceToBorder(loc);
-            // wewnątrz obcego lub w odległości maxNear od granicy
-            if (d <= maxNear) {
+            // tylko NA ZEWNĄTRZ, w pasie maxNear od granicy
+            if (d > 0 && d <= maxNear) {
                 return true;
             }
         }
@@ -262,6 +274,39 @@ public class GuildManager {
             }
         }
         return null;
+    }
+
+
+    public void checkAllianceLimit(Guild guild) {
+        if (guild == null) return;
+        boolean changed = false;
+        for (String allyTag : new java.util.HashSet<>(guild.getAllies())) {
+            Guild ally = getGuild(allyTag);
+            if (ally == null) {
+                guild.removeAlly(allyTag);
+                changed = true;
+                continue;
+            }
+            int total = guild.getMembers().size() + ally.getMembers().size();
+            if (total > 15) {
+                guild.removeAlly(allyTag);
+                ally.removeAlly(guild.getTag());
+                changed = true;
+                for (java.util.UUID id : guild.getMembers()) {
+                    org.bukkit.entity.Player p = Bukkit.getPlayer(id);
+                    if (p != null && p.isOnline()) {
+                        p.sendMessage("§cSojusz z §e" + allyTag + " §czostał automatycznie zerwany (limit 15 osób).");
+                    }
+                }
+                for (java.util.UUID id : ally.getMembers()) {
+                    org.bukkit.entity.Player p = Bukkit.getPlayer(id);
+                    if (p != null && p.isOnline()) {
+                        p.sendMessage("§cSojusz z §e" + guild.getTag() + " §czostał automatycznie zerwany (limit 15 osób).");
+                    }
+                }
+            }
+        }
+        if (changed) save();
     }
 
     public Collection<Guild> getAll() {
