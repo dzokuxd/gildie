@@ -1,0 +1,11 @@
+name: Gildie
+version: '1.1'
+main: pl.gildie.GildiePlugin
+api-version: '1.20'
+author: Gildie
+description: Gildie z terenem, ochrona i regeneracja TNT (zapis flat YAML)
+commands:
+  g:
+    description: Komendy gildii
+    usage: /g <zaloz|regeneruj> [tag]
+    aliases: [gildia, guild]
