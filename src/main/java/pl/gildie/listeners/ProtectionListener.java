@@ -17,25 +17,40 @@ public class ProtectionListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent event) {
+        // 1x1 baza wypadowa — nikt nie buduje
+        Guild raid = guildManager.getRaidBaseOwnerAt(event.getBlock().getLocation());
+        if (raid != null) {
+            event.setCancelled(true);
+            event.getPlayer().sendMessage("§cNie możesz budować na bazie wypadowej gildii §e" + raid.getTag() + "§c!");
+            return;
+        }
+
         Guild guild = guildManager.getGuildAt(event.getBlock().getLocation());
         if (guild == null) {
             return;
         }
         if (!guild.isMember(event.getPlayer().getUniqueId())) {
             event.setCancelled(true);
-            event.getPlayer().sendMessage("§cNie mozesz budowac na terenie gildii §e" + guild.getTag() + "§c!");
+            event.getPlayer().sendMessage("§cNie możesz budować na terenie gildii §e" + guild.getTag() + "§c!");
         }
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent event) {
+        Guild raid = guildManager.getRaidBaseOwnerAt(event.getBlock().getLocation());
+        if (raid != null) {
+            event.setCancelled(true);
+            event.getPlayer().sendMessage("§cNie możesz niszczyć na bazie wypadowej gildii §e" + raid.getTag() + "§c!");
+            return;
+        }
+
         Guild guild = guildManager.getGuildAt(event.getBlock().getLocation());
         if (guild == null) {
             return;
         }
         if (!guild.isMember(event.getPlayer().getUniqueId())) {
             event.setCancelled(true);
-            event.getPlayer().sendMessage("§cNie mozesz niszczyc na terenie gildii §e" + guild.getTag() + "§c!");
+            event.getPlayer().sendMessage("§cNie możesz niszczyć na terenie gildii §e" + guild.getTag() + "§c!");
         }
     }
 }
