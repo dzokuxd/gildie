@@ -17,7 +17,6 @@ public class ProtectionListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent event) {
-        // 1x1 baza wypadowa — nikt nie buduje
         Guild raid = guildManager.getRaidBaseOwnerAt(event.getBlock().getLocation());
         if (raid != null) {
             event.setCancelled(true);
@@ -46,6 +45,11 @@ public class ProtectionListener implements Listener {
 
         Guild guild = guildManager.getGuildAt(event.getBlock().getLocation());
         if (guild == null) {
+            return;
+        }
+        // Jajo nigdy nie znika – WarListener liczy HP. Bez spamu "nie możesz niszczyć".
+        if (guild.isEggBlock(event.getBlock().getLocation())) {
+            event.setCancelled(true);
             return;
         }
         if (!guild.isMember(event.getPlayer().getUniqueId())) {

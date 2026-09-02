@@ -23,6 +23,7 @@ public class GuildManager {
     private final JavaPlugin plugin;
     private final Map<String, Guild> guilds = new HashMap<>();
     private final File file;
+    private volatile boolean dirty;
 
     public GuildManager(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -110,6 +111,18 @@ public class GuildManager {
             java.util.List<String> alliesList = config.getStringList(path + ".allies");
             guild.loadAllies(alliesList);
 
+            if (config.contains(path + ".egg.x")) {
+                int maxHp = config.getInt(path + ".egg.maxHp", 500);
+                int hp = config.getInt(path + ".egg.hp", maxHp);
+                guild.loadEgg(
+                        config.getDouble(path + ".egg.x"),
+                        config.getDouble(path + ".egg.y"),
+                        config.getDouble(path + ".egg.z"),
+                        hp,
+                        maxHp
+                );
+            }
+
             guilds.put(tag.toUpperCase(), guild);
         }
     }
@@ -157,13 +170,30 @@ public class GuildManager {
                 config.set(path + ".guild-waypoint", guild.getGuildWaypointId().toString());
             }
 
+            if (guild.hasEgg()) {
+                config.set(path + ".egg.x", guild.getEggX());
+                config.set(path + ".egg.y", guild.getEggY());
+                config.set(path + ".egg.z", guild.getEggZ());
+                config.set(path + ".egg.hp", guild.getEggHp());
+                config.set(path + ".egg.maxHp", guild.getMaxEggHp());
+            }
+
             config.set(path + ".allies", new java.util.ArrayList<>(guild.getAllies()));
         }
         try {
             config.save(file);
+            dirty = false;
         } catch (IOException e) {
             plugin.getLogger().severe("Nie mozna zapisac gildie.yml: " + e.getMessage());
         }
+    }
+
+    public void markDirty() {
+        dirty = true;
+    }
+
+    public void saveIfDirty() {
+        if (dirty) save();
     }
 
     public boolean createGuild(String tag, UUID owner, Location center, int radius) {
@@ -174,11 +204,35 @@ public class GuildManager {
         if (getGuildByPlayer(owner) != null) {
             return false;
         }
-        Guild guild = new Guild(tag, owner, center, radius);
+
+        // Centrum gildii = dokładnie pozycja jaja (Y z configu, zwykle 40)
+        int roomY = plugin.getConfig().getInt("egg.room-y", 40);
+        Location eggCenter = new Location(
+                center.getWorld(),
+                center.getBlockX() + 0.5,
+                roomY + 1,
+                center.getBlockZ() + 0.5
+        );
+
+        Guild guild = new Guild(tag, owner, eggCenter, radius);
         guilds.put(tag, guild);
+
+        // Pomieszczenie + jajo (centrum gildii już wskazuje na jajo)
+        int maxHits = plugin.getConfig().getInt("war.egg-hits", 500);
+        guild.setMaxEggHp(maxHits);
+        guild.setEggHp(maxHits);
+        createEggRoom(guild, center);
+
+        // Hologram – odroczony, bo WarManager/EggHologram może jeszcze nie być gotowy
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (plugin instanceof pl.gildie.GildiePlugin gp && gp.getEggHologram() != null) {
+                gp.getEggHologram().spawnOrUpdate(guild);
+            }
+        }, 20L);
+
         save();
 
-        // WP gildyjny na środku, Y=70
+        // WP gildyjny nad centrum (jajo)
         Location wpLoc = guild.getCenterAtY(70);
         Player leader = Bukkit.getPlayer(owner);
         if (wpLoc != null && leader != null && leader.isOnline()) {
@@ -190,6 +244,54 @@ public class GuildManager {
         }
         save();
         return true;
+    }
+
+    /**
+     * Buduje pomieszczenie na Y=40 pod pozycją gracza i stawia jajo (DRAGON_EGG).
+     * Guild.x/y/z (centrum) jest już ustawione na pozycję jaja.
+     */
+    private void createEggRoom(Guild guild, Location playerLoc) {
+        org.bukkit.World world = playerLoc.getWorld();
+        if (world == null) return;
+
+        int roomY = plugin.getConfig().getInt("egg.room-y", 40);
+        int radius = plugin.getConfig().getInt("egg.room-radius", 3);
+        String matName = plugin.getConfig().getString("egg.material", "DRAGON_EGG");
+        org.bukkit.Material eggMat;
+        try {
+            eggMat = org.bukkit.Material.valueOf(matName);
+        } catch (Exception e) {
+            eggMat = org.bukkit.Material.DRAGON_EGG;
+        }
+
+        int cx = playerLoc.getBlockX();
+        int cz = playerLoc.getBlockZ();
+
+        // Pomieszczenie  (promień) – ściany/podłoga/sufit BEDROCK, środek AIR
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                for (int dy = 0; dy <= 3; dy++) {
+                    org.bukkit.block.Block b = world.getBlockAt(cx + dx, roomY + dy, cz + dz);
+                    boolean edge = Math.abs(dx) == radius || Math.abs(dz) == radius || dy == 0 || dy == 3;
+                    if (edge) {
+                        b.setType(org.bukkit.Material.BEDROCK, false);
+                    } else {
+                        b.setType(org.bukkit.Material.AIR, false);
+                    }
+                }
+            }
+        }
+
+        // Jajo na środku
+        org.bukkit.block.Block eggBlock = world.getBlockAt(cx, roomY + 1, cz);
+        eggBlock.setType(eggMat, false);
+        guild.setEgg(cx + 0.5, roomY + 1, cz + 0.5);
+
+        // Szyb dojściowy w górę do poziomu gracza
+        int playerY = playerLoc.getBlockY();
+        for (int y = roomY + 4; y <= playerY && y < roomY + 40; y++) {
+            world.getBlockAt(cx, y, cz).setType(org.bukkit.Material.AIR, false);
+        }
     }
 
     public boolean disband(Guild guild) {
@@ -205,6 +307,9 @@ public class GuildManager {
         }
         if (guild.getRaidWaypointId() != null) {
             WaypointHook.removeGuildWaypoint(guild.getRaidWaypointId());
+        }
+        if (plugin instanceof pl.gildie.GildiePlugin gp && gp.getEggHologram() != null) {
+            gp.getEggHologram().remove(guild.getTag());
         }
         guilds.remove(guild.getTag());
         save();

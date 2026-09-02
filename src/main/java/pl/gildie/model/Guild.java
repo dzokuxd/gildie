@@ -39,6 +39,12 @@ public class Guild {
 
     private UUID guildWaypointId;
 
+    // Jajo gildii (pomieszczenie na Y=40)
+    private double eggX;
+    private double eggY = 40;
+    private double eggZ;
+    private boolean hasEgg;
+
     private final Set<String> allies = new HashSet<>();
     private final Map<String, Long> pendingAlliance = new HashMap<>();
 
@@ -216,5 +222,63 @@ public class Guild {
         allies.clear();
         if (list == null) return;
         for (String t : list) if (t != null && !t.isBlank()) allies.add(t.toUpperCase());
+    }
+
+    // --- Jajo gildii ---
+    private int eggHp = 500;
+    private int maxEggHp = 500;
+
+    public boolean hasEgg() { return hasEgg; }
+    public double getEggX() { return eggX; }
+    public double getEggY() { return eggY; }
+    public double getEggZ() { return eggZ; }
+    public void setEgg(double x, double y, double z) {
+        this.eggX = x;
+        this.eggY = y;
+        this.eggZ = z;
+        this.hasEgg = true;
+    }
+    public void loadEgg(double x, double y, double z) {
+        setEgg(x, y, z);
+    }
+    public void loadEgg(double x, double y, double z, int hp, int maxHp) {
+        setEgg(x, y, z);
+        this.maxEggHp = Math.max(1, maxHp);
+        this.eggHp = Math.max(0, Math.min(hp, this.maxEggHp));
+    }
+    public Location getEggLocation() {
+        if (!hasEgg) return null;
+        World w = Bukkit.getWorld(worldName);
+        if (w == null) return null;
+        return new Location(w, eggX, eggY, eggZ);
+    }
+    public boolean isEggBlock(Location loc) {
+        if (!hasEgg || loc == null || loc.getWorld() == null) return false;
+        if (!loc.getWorld().getName().equals(worldName)) return false;
+        return loc.getBlockX() == (int) Math.floor(eggX)
+                && loc.getBlockY() == (int) Math.floor(eggY)
+                && loc.getBlockZ() == (int) Math.floor(eggZ);
+    }
+
+    public int getEggHp() { return eggHp; }
+    public int getMaxEggHp() { return maxEggHp; }
+    public void setMaxEggHp(int max) {
+        this.maxEggHp = Math.max(1, max);
+        if (eggHp > maxEggHp) eggHp = maxEggHp;
+    }
+    public void setEggHp(int hp) {
+        this.eggHp = Math.max(0, Math.min(hp, maxEggHp));
+    }
+    /** @return true jeśli HP spadło do 0 */
+    public boolean damageEgg(int amount) {
+        eggHp = Math.max(0, eggHp - Math.max(0, amount));
+        return eggHp <= 0;
+    }
+    /** Regeneracja HP (gdy TNT off) */
+    public boolean regenEgg(int amount) {
+        if (eggHp >= maxEggHp) return false;
+        int before = eggHp;
+        eggHp = Math.min(maxEggHp, eggHp + Math.max(0, amount));
+        return eggHp != before;
     }
 }

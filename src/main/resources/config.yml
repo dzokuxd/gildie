@@ -1,4 +1,32 @@
 # Koszt ZA KAŻDE zaproszenie (/g zapros <nick> oraz klik różdżką).
-# Różdżka (/g zapros wand) jest darmowa — opłata dopiero przy kliknięciu na gracza.
 invite-cost:
   DIAMOND: 4
+
+# === System wojen ===
+war:
+  # Max HP jaja (= ile uderzeń do sztandaru)
+  egg-hits: 500
+  # Regeneracja HP gdy TNT jest OFF – co 10 sekund tyle HP
+  egg-regen-per-tick: 5
+  # Chat gildii przy ataku na jajo – co tyle HP (450, 400, …)
+  egg-alert-every-hp: 50
+  # Procent rankingu przegranej gildii trafiający do wygranej (placeholder)
+  ranking-percent: 0.10
+  # Minimalny / maksymalny czas wojny w godzinach
+  min-hours: 1
+  max-hours: 3
+
+# TNT – tylko w tych godzinach niszczy bloki (reszta czasu cancel)
+tnt:
+  start-hour: 16
+  end-hour: 21
+  timezone: Europe/Warsaw
+
+# Jajo gildii – pomieszczenie
+egg:
+  # Y pomieszczenia z jajkiem
+  room-y: 40
+  # Rozmiar pomieszczenia (promień od środka, np. 3 = 7x7)
+  room-radius: 3
+  # Materiał jaja (specjalny blok)
+  material: DRAGON_EGG
