@@ -99,6 +99,13 @@ public class GCommand implements CommandExecutor, TabCompleter {
                 }
             }
             case "sojusz", "ally" -> handleAlliance(player, args);
+            case "wojna", "war" -> {
+                if (plugin.getWarManager() == null) {
+                    player.sendMessage("§cSystem wojen niedostępny.");
+                } else {
+                    pl.gildie.war.WarGui.openMain(player, guildManager, plugin.getWarManager());
+                }
+            }
             case "pomoc", "help" -> sendHelp(player);
             default -> {
                 player.sendMessage("§cNieznana komenda. Użyj §e/g pomoc");
@@ -128,6 +135,7 @@ public class GCommand implements CommandExecutor, TabCompleter {
         player.sendMessage("§e/g panel §7— menu fosy");
         player.sendMessage("§e/g peryskop §7— widok z góry na teren gildii");
         player.sendMessage("§e/g sojusz §7— zarządzanie sojuszami");
+        player.sendMessage("§e/g wojna §7— panel wojen (GUI)");
         player.sendMessage("§8§m--------------------------------");
     }
 
@@ -425,6 +433,15 @@ public class GCommand implements CommandExecutor, TabCompleter {
             }
         }
         player.sendMessage("§7Online: " + (online.isEmpty() ? "§cbrak" : String.join("§7, ", online)));
+        if (plugin.getWarManager() != null) {
+            plugin.getWarManager().getActiveWarOf(guild.getTag()).ifPresent(war -> {
+                String opponent = war.getOpponent(guild.getTag());
+                long rem = war.getRemainingMs();
+                long h = rem / 3_600_000L;
+                long m = (rem % 3_600_000L) / 60_000L;
+                player.sendMessage("§c⚔ Wojna z §e" + opponent + " §c– pozostało §f" + h + "h " + m + "min");
+            });
+        }
         player.sendMessage("§8§m--------------------------------");
     }
 

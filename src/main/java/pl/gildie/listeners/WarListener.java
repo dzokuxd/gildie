@@ -24,20 +24,23 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import pl.gildie.managers.GuildManager;
 import pl.gildie.model.Guild;
 import pl.gildie.war.BannerItem;
 import pl.gildie.war.EggHologram;
 import pl.gildie.war.TntManager;
 import pl.gildie.war.War;
+import pl.gildie.war.WarGui;
 import pl.gildie.war.WarManager;
 import pl.gildie.war.WarStats;
 
 import java.util.Iterator;
+import java.util.List;
 import java.util.Optional;
 
 /**
- * Listener: jajo, sztandar, TNT off, statystyki (koxy, perły, zabójstwa).
+ * Listener: jajo, sztandar, TNT off, statystyki, kliknięcia GUI wojen.
  */
 public class WarListener implements Listener {
 
@@ -71,10 +74,6 @@ public class WarListener implements Listener {
         }
     }
 
-    /**
-     * ignoreCancelled=false: ProtectionListener kasuje break na obcym terenie,
-     * bez tego uderzenia w jajo w ogóle by nie działały.
-     */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onEggBreak(BlockBreakEvent e) {
         Guild g = eggGuildAt(e.getBlock());
@@ -84,10 +83,6 @@ public class WarListener implements Listener {
         warManager.handleEggHit(e.getPlayer(), g);
     }
 
-    /**
-     * Lewy klik = hit (dragon egg często nie odpala BreakEvent).
-     * Prawy klik = cancel (inaczej jajko się teleportuje).
-     */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onEggInteract(PlayerInteractEvent e) {
         if (e.getHand() != EquipmentSlot.HAND) return;
@@ -115,7 +110,6 @@ public class WarListener implements Listener {
     @EventHandler
     public void onDeath(PlayerDeathEvent e) {
         Player p = e.getEntity();
-        // Anti-dupe: śmierć naturalnie dropi hełm + handleBannerDeath też dropił
         Iterator<ItemStack> it = e.getDrops().iterator();
         while (it.hasNext()) {
             if (BannerItem.isBanner(it.next())) it.remove();
@@ -145,7 +139,7 @@ public class WarListener implements Listener {
 
         Guild g = guildManager.getGuildByPlayer(player.getUniqueId());
         if (g == null) {
-            e.setCancelled(true); // zostaw na ziemi
+            e.setCancelled(true);
             return;
         }
         e.setCancelled(true);
@@ -179,28 +173,82 @@ public class WarListener implements Listener {
         }
     }
 
+    /**
+     * Pełna obsługa GUI wojen – bez komend tekstowych.
+     */
     @EventHandler
     public void onWarGuiClick(InventoryClickEvent e) {
         if (!(e.getWhoClicked() instanceof Player player)) return;
         String title = e.getView().getTitle();
         if (title == null) return;
-        if (!(title.contains("Wojny gildii") || title.contains("Wojna vs") || title.contains("Historia wojen"))) {
-            return;
-        }
+
+        boolean isWarGui = title.equals(WarGui.TITLE_MAIN)
+                || title.equals(WarGui.TITLE_CHALLENGE)
+                || title.equals(WarGui.TITLE_DURATION)
+                || title.startsWith(WarGui.TITLE_STATS)
+                || title.equals(WarGui.TITLE_HISTORY)
+                || title.equals(WarGui.TITLE_PICK_STATS);
+
+        if (!isWarGui) return;
+
         e.setCancelled(true);
         ItemStack clicked = e.getCurrentItem();
         if (clicked == null || !clicked.hasItemMeta()) return;
-        String name = clicked.getItemMeta().getDisplayName();
+        ItemMeta meta = clicked.getItemMeta();
+        String name = meta.getDisplayName();
         if (name == null) return;
-        if (name.contains("Wyzwij")) {
-            player.closeInventory();
-            player.sendMessage("§eUżyj: §f/wojna wyzwij <tag> [1-3]");
-        } else if (name.contains("Statystyki")) {
-            player.closeInventory();
-            player.sendMessage("§eUżyj: §f/wojna stats <tag>");
-        } else if (name.contains("Historia")) {
-            player.closeInventory();
-            player.performCommand("wojna historia");
+
+        // --- Główne menu ---
+        if (title.equals(WarGui.TITLE_MAIN)) {
+            if (name.contains("Wyzwij")) {
+                WarGui.openChallengeList(player, guildManager, warManager);
+            } else if (name.contains("Statystyki")) {
+                WarGui.openStatsPicker(player, guildManager, warManager);
+            } else if (name.contains("Historia")) {
+                WarGui.openHistory(player, warManager);
+            } else if (name.contains("Twoja aktywna wojna")) {
+                WarGui.openStatsPicker(player, guildManager, warManager);
+            }
+            return;
+        }
+
+        // --- Lista gildii do wyzwania ---
+        if (title.equals(WarGui.TITLE_CHALLENGE)) {
+            if (clicked.getType() == Material.WHITE_BANNER && name.startsWith("§e")) {
+                String tag = name.replace("§e", "").trim();
+                WarGui.openDurationPicker(player, tag);
+            }
+            return;
+        }
+
+        // --- Wybór czasu ---
+        if (title.equals(WarGui.TITLE_DURATION)) {
+            List<String> lore = meta.getLore();
+            if (lore == null) return;
+            for (String line : lore) {
+                if (line.contains("TAG:")) {
+                    // format §8TAG:XYZ:1
+                    String raw = line.replace("§8", "").trim();
+                    String[] parts = raw.split(":");
+                    if (parts.length >= 3) {
+                        String tag = parts[1];
+                        long hours = 1;
+                        try {
+                            hours = Long.parseLong(parts[2]);
+                        } catch (NumberFormatException ignored) {}
+                        hours = Math.max(1, Math.min(3, hours));
+                        player.closeInventory();
+                        warManager.declareWar(player, tag, hours * 3_600_000L);
+                    }
+                    return;
+                }
+            }
+            return;
+        }
+
+        // --- Stats / historia: powrót ---
+        if (name.contains("Powrót")) {
+            WarGui.openMain(player, guildManager, warManager);
         }
     }
 

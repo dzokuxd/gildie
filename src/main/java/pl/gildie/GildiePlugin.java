@@ -82,6 +82,8 @@ public class GildiePlugin extends JavaPlugin {
         getServer().getScheduler().runTaskTimer(this, () -> warManager.tick(), 20L * 20, 20L * 20);
         getServer().getScheduler().runTaskTimer(this, () -> warManager.tickEggRegen(), 20L * 10, 20L * 10);
         getServer().getScheduler().runTaskTimer(this, () -> warManager.flush(), 20L * 5, 20L * 5);
+        // Live WP za nosicielem sztandaru (~1.5 s)
+        getServer().getScheduler().runTaskTimer(this, () -> warManager.tickBannerWaypoints(), 40L, 30L);
 
         getServer().getScheduler().runTaskTimer(this, () -> {
             long now = System.currentTimeMillis();
@@ -98,7 +100,7 @@ public class GildiePlugin extends JavaPlugin {
             }
         }, 60L);
 
-        getLogger().info("Gildie 1.3 + Wojny włączone. Jajo, hologram, regeneracja HP, sztandar, TNT 16-21, /wojna");
+        getLogger().info("Gildie 1.4 + Wojny. /g wojna GUI, live WP sztandaru, odniesienie do jajka");
     }
 
     @Override

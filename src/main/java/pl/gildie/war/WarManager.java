@@ -385,8 +385,13 @@ public class WarManager {
         String from = BannerItem.getFromGuild(helmet);
 
         Guild own = guildManager.getGuildByPlayer(player.getUniqueId());
-        if (own == null) return;
-        if (!own.isInTerritory(player.getLocation())) return;
+        if (own == null || !own.hasEgg()) return;
+
+        // Musi stać przy JAJKU własnej gildii (promień 3 bloki)
+        Location egg = own.getEggLocation();
+        if (egg == null || egg.getWorld() == null) return;
+        if (!egg.getWorld().equals(player.getWorld())) return;
+        if (egg.distanceSquared(player.getLocation()) > 9.0) return; // 3*3
 
         Optional<War> opt = getWarById(warId);
         if (opt.isEmpty() || !opt.get().isActive()) return;
@@ -396,24 +401,81 @@ public class WarManager {
             return; // stary / zduplikowany sztandar
         }
 
-        // Odzyskanie przez właścicieli jaja – wojna trwa, HP wraca do 25%
+        // Odzyskanie przez właścicieli jaja – wojna TRWA
         if (from != null && from.equalsIgnoreCase(own.getTag())) {
             recoverBanner(player, war, bannerId, own);
             return;
         }
 
-        war.setState(War.State.ENDED_CONQUEST);
-        war.setEndTime(System.currentTimeMillis());
+        // Atakujący odniósł sztandar do SWOJEGO jajka → podbicie ZALICZONE, ale wojna NIE kończy się
         stripBanner(player, bannerId);
         war.clearBanner();
-        activeWars.remove(pairKey(war.getAttackerTag(), war.getDefenderTag()));
 
-        applyWinRewards(war, own.getTag(), from);
+        // Przywróć HP podbitego jaja (można podbijać ponownie w tej samej wojnie)
+        Guild conquered = guildManager.getGuild(from);
+        if (conquered != null && conquered.hasEgg()) {
+            int restored = Math.max(1, conquered.getMaxEggHp() / 4);
+            conquered.setEggHp(restored);
+            guildManager.markDirty();
+            EggHologram holo = hologram();
+            if (holo != null) holo.updateHp(conquered);
+            ensureEggBlock(conquered);
+        }
 
-        Bukkit.broadcastMessage("§a§l[WOJNA] §e" + own.getTag() + " §apodbiła gildię §e" + from
-                + " §a! Wojna zakończona podbiciem przez §f" + player.getName());
+        // Nagroda / ranking za to podbicie (bez końca wojny)
+        applyCaptureReward(war, own.getTag(), from);
+
+        Bukkit.broadcastMessage("§a§l[WOJNA] §e" + own.getTag() + " §azaliczyła podbicie gildii §e" + from
+                + " §a(§f" + player.getName() + "§a)! §7Wojna trwa dalej.");
+        notifyGuild(own, "§aPodbicie zaliczone!", "§7Wojna z §e" + from + " §7trwa.", true, Sound.ENTITY_PLAYER_LEVELUP);
+        if (conquered != null) {
+            notifyGuild(conquered, "§cWasze jajo zostało podbite!", "§7HP przywrócone – brońcie dalej!", true, Sound.ENTITY_WITHER_SPAWN);
+        }
         markDirty();
         save();
+    }
+
+    /**
+     * Nagroda za pojedyncze podbicie (sztandar odniesiony) – bez kończenia wojny.
+     */
+    private void applyCaptureReward(War war, String winnerTag, String loserTag) {
+        // Placeholder: ranking / case – wojna nadal ACTIVE
+        war.getStats(winnerTag).setRankingGained(war.getStats(winnerTag).getRankingGained() + 0);
+        for (UUID uuid : Optional.ofNullable(guildManager.getGuild(winnerTag))
+                .map(Guild::getMembers).orElse(java.util.Collections.emptySet())) {
+            Player p = Bukkit.getPlayer(uuid);
+            if (p != null && p.isOnline()) {
+                p.sendMessage("§aOtrzymujesz nagrodę za podbicie (placeholder – case).");
+            }
+        }
+    }
+
+    /**
+     * Live WP za nosicielem sztandaru – aktualizacja pozycji co ~1.5 s.
+     * addGlobalWaypoint jest statyczny, więc remove + add na aktualnej lokacji.
+     */
+    public void tickBannerWaypoints() {
+        for (UUID playerId : new ArrayList<>(bannerCarriers)) {
+            Player p = Bukkit.getPlayer(playerId);
+            if (p == null || !p.isOnline()) continue;
+
+            ItemStack helm = p.getInventory().getHelmet();
+            if (!BannerItem.isBanner(helm)) {
+                bannerCarriers.remove(playerId);
+                continue;
+            }
+            UUID bannerId = BannerItem.getBannerId(helm);
+            if (bannerId == null) continue;
+
+            String from = BannerItem.getFromGuild(helm);
+            String name = "Sztandar " + (from != null ? from : "?");
+
+            UUID oldWp = bannerWaypoints.remove(bannerId);
+            if (oldWp != null) WaypointHook.removeWaypoint(oldWp);
+
+            UUID newWp = WaypointHook.addGlobalWaypoint(name, p.getLocation(), 0xFF5555);
+            if (newWp != null) bannerWaypoints.put(bannerId, newWp);
+        }
     }
 
     private void recoverBanner(Player player, War war, UUID bannerId, Guild owners) {
@@ -520,7 +582,13 @@ public class WarManager {
         if (newWp != null) bannerWaypoints.put(bannerId, newWp);
 
         setScale(player, 1.6);
-        player.sendMessage("§aPodniosłeś sztandar! Zanieś go do terenu swojej gildii.");
+
+        String from = BannerItem.getFromGuild(banner);
+        if (from != null && from.equalsIgnoreCase(g.getTag())) {
+            player.sendMessage("§aOdzyskałeś sztandar własnej gildii! Zanieś go do §ejajka gildii§a, żeby go zabezpieczyć.");
+        } else {
+            player.sendMessage("§aPodniosłeś sztandar! Zanieś go do §ejajka swojej gildii§a, żeby zaliczyć podbicie.");
+        }
         markDirty();
     }
 
