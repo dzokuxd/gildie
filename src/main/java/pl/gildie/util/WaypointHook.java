@@ -21,6 +21,9 @@ public final class WaypointHook {
     private static Method removeGuildWaypoint;
     private static Method addGlobalWaypoint;
     private static Method removeWaypoint;
+    private static Method helpPingMethod;
+    private static Method startGlobalLiveTrackMethod;
+    private static Method stopGlobalLiveTrackMethod;
     private static boolean tried;
     private static final Logger LOG = Bukkit.getLogger();
 
@@ -50,6 +53,9 @@ public final class WaypointHook {
             removeGuildWaypoint = apiClass.getMethod("removeGuildWaypoint", UUID.class);
             addGlobalWaypoint = apiClass.getMethod("addGlobalWaypoint", String.class, Location.class, int.class);
             removeWaypoint = apiClass.getMethod("removeWaypoint", UUID.class);
+            helpPingMethod = apiClass.getMethod("helpPing", Player.class);
+            startGlobalLiveTrackMethod = apiClass.getMethod("startGlobalLiveTrack", Player.class, String.class);
+            stopGlobalLiveTrackMethod = apiClass.getMethod("stopGlobalLiveTrack", UUID.class);
             LOG.info("[Gildie] Podpięto WaypointAPI (ReiMinimap).");
         } catch (Throwable t) {
             api = null;
@@ -132,8 +138,52 @@ public final class WaypointHook {
         }
     }
 
+    /**
+     * Ping pomocy do gildii — live WP + scoreboard dla członków.
+     * @return komunikat z API albo komunikat o braku WaypointAPI
+     */
+    public static String helpPing(Player player) {
+        ensure();
+        if (api == null || player == null) {
+            return "§cSystem waypointów niedostępny (ReiMinimap).";
+        }
+        try {
+            Object result = helpPingMethod.invoke(api, player);
+            if (result instanceof String s) {
+                return s;
+            }
+        } catch (Throwable t) {
+            LOG.warning("[Gildie] helpPing failed: " + t.getMessage());
+        }
+        return "§cNie udało się wysłać pingu.";
+    }
+
+    /** Ciągły live WP za graczem dla wszystkich (sztandar). */
+    public static void startGlobalLiveTrack(Player player, String labelSuffix) {
+        ensure();
+        if (api == null || player == null || startGlobalLiveTrackMethod == null) return;
+        try {
+            startGlobalLiveTrackMethod.invoke(api, player, labelSuffix == null ? "" : labelSuffix);
+        } catch (Throwable t) {
+            LOG.warning("[Gildie] startGlobalLiveTrack failed: " + t.getMessage());
+        }
+    }
+
+    public static void stopGlobalLiveTrack(UUID playerId) {
+        ensure();
+        if (api == null || playerId == null || stopGlobalLiveTrackMethod == null) return;
+        try {
+            stopGlobalLiveTrackMethod.invoke(api, playerId);
+        } catch (Throwable t) {
+            LOG.warning("[Gildie] stopGlobalLiveTrack failed: " + t.getMessage());
+        }
+    }
+
     public static void reset() {
         tried = false;
         api = null;
+        helpPingMethod = null;
+        startGlobalLiveTrackMethod = null;
+        stopGlobalLiveTrackMethod = null;
     }
 }

@@ -350,10 +350,8 @@ public class WarManager {
             player.teleport(top.add(0.5, 1, 0.5));
         }
 
-        UUID wpId = WaypointHook.addGlobalWaypoint("Sztandar " + conquered.getTag(), player.getLocation(), 0xFF5555);
-        if (wpId != null) {
-            bannerWaypoints.put(bannerId, wpId);
-        }
+        // ciągły live WP za nosicielem (jak /g pp, dla wszystkich)
+        WaypointHook.startGlobalLiveTrack(player, " SZTANDAR " + conquered.getTag());
 
         Bukkit.broadcastMessage("§c§l[WOJNA] §e" + player.getName() + " §cz gildii §e" + conqueror.getTag()
                 + " §cprzejął sztandar gildii §e" + conquered.getTag() + "§c! Musi zanieść go do swojej bazy!");
@@ -451,30 +449,21 @@ public class WarManager {
     }
 
     /**
-     * Live WP za nosicielem sztandaru – aktualizacja pozycji co ~1.5 s.
-     * addGlobalWaypoint jest statyczny, więc remove + add na aktualnej lokacji.
+     * Cleanup nosicieli sztandaru — live WP jest streamowany przez WaypointAPI (~10 Hz).
+     * Tu tylko zdejmujemy track, gdy gracz już nie ma sztandaru na głowie.
      */
     public void tickBannerWaypoints() {
         for (UUID playerId : new ArrayList<>(bannerCarriers)) {
             Player p = Bukkit.getPlayer(playerId);
-            if (p == null || !p.isOnline()) continue;
-
+            if (p == null || !p.isOnline()) {
+                WaypointHook.stopGlobalLiveTrack(playerId);
+                continue;
+            }
             ItemStack helm = p.getInventory().getHelmet();
             if (!BannerItem.isBanner(helm)) {
                 bannerCarriers.remove(playerId);
-                continue;
+                WaypointHook.stopGlobalLiveTrack(playerId);
             }
-            UUID bannerId = BannerItem.getBannerId(helm);
-            if (bannerId == null) continue;
-
-            String from = BannerItem.getFromGuild(helm);
-            String name = "Sztandar " + (from != null ? from : "?");
-
-            UUID oldWp = bannerWaypoints.remove(bannerId);
-            if (oldWp != null) WaypointHook.removeWaypoint(oldWp);
-
-            UUID newWp = WaypointHook.addGlobalWaypoint(name, p.getLocation(), 0xFF5555);
-            if (newWp != null) bannerWaypoints.put(bannerId, newWp);
         }
     }
 
@@ -498,6 +487,7 @@ public class WarManager {
         player.getInventory().setHelmet(null);
         setScale(player, 1.0);
         bannerCarriers.remove(player.getUniqueId());
+        WaypointHook.stopGlobalLiveTrack(player.getUniqueId());
         UUID wp = bannerWaypoints.remove(bannerId);
         if (wp != null) WaypointHook.removeWaypoint(wp);
         droppedBanners.remove(bannerId);
@@ -528,6 +518,7 @@ public class WarManager {
         player.getInventory().setHelmet(null);
         setScale(player, 1.0);
         bannerCarriers.remove(player.getUniqueId());
+        WaypointHook.stopGlobalLiveTrack(player.getUniqueId());
 
         Location dropLoc = player.getLocation();
         Item dropped = player.getWorld().dropItemNaturally(dropLoc, helmet);
@@ -535,6 +526,7 @@ public class WarManager {
 
         droppedBanners.put(bannerId, dropLoc.clone());
 
+        // upadły sztandar = stały WP na ziemi (nie live)
         UUID oldWp = bannerWaypoints.remove(bannerId);
         if (oldWp != null) WaypointHook.removeWaypoint(oldWp);
         UUID newWp = WaypointHook.addGlobalWaypoint("Sztandar (upadł)", dropLoc, 0xFF5555);
@@ -576,10 +568,11 @@ public class WarManager {
         bannerCarriers.add(player.getUniqueId());
 
         droppedBanners.remove(bannerId);
+        // zdejmij stały WP z ziemi, włącz live za nosicielem
         UUID oldWp = bannerWaypoints.remove(bannerId);
         if (oldWp != null) WaypointHook.removeWaypoint(oldWp);
-        UUID newWp = WaypointHook.addGlobalWaypoint("Sztandar " + BannerItem.getFromGuild(banner), player.getLocation(), 0xFF5555);
-        if (newWp != null) bannerWaypoints.put(bannerId, newWp);
+        String fromTag = BannerItem.getFromGuild(banner);
+        WaypointHook.startGlobalLiveTrack(player, " SZTANDAR " + (fromTag != null ? fromTag : "?"));
 
         setScale(player, 1.6);
 
@@ -655,6 +648,7 @@ public class WarManager {
                 setScale(p, 1.0);
             }
             bannerCarriers.remove(carrierId);
+            WaypointHook.stopGlobalLiveTrack(carrierId);
         }
         // wszyscy online – na wypadek rozjechanego carrierId
         for (Player p : Bukkit.getOnlinePlayers()) {
@@ -665,6 +659,7 @@ public class WarManager {
                     p.getInventory().setHelmet(null);
                     setScale(p, 1.0);
                     bannerCarriers.remove(p.getUniqueId());
+                    WaypointHook.stopGlobalLiveTrack(p.getUniqueId());
                 }
             }
         }
@@ -833,6 +828,7 @@ public class WarManager {
         ItemStack helmet = player.getInventory().getHelmet();
         if (!BannerItem.isBanner(helmet)) {
             bannerCarriers.remove(player.getUniqueId());
+            WaypointHook.stopGlobalLiveTrack(player.getUniqueId());
             return;
         }
         UUID warId = BannerItem.getWarId(helmet);
@@ -842,6 +838,7 @@ public class WarManager {
             player.getInventory().setHelmet(null);
             setScale(player, 1.0);
             bannerCarriers.remove(player.getUniqueId());
+            WaypointHook.stopGlobalLiveTrack(player.getUniqueId());
             player.sendMessage("§cSztandar był z nieaktywnej wojny i został usunięty.");
             return;
         }
@@ -850,6 +847,7 @@ public class WarManager {
         if (g == null || !war.isParticipant(g.getTag())) {
             player.getInventory().setHelmet(null);
             setScale(player, 1.0);
+            WaypointHook.stopGlobalLiveTrack(player.getUniqueId());
             return;
         }
         war.setActiveBannerId(bannerId);
@@ -857,10 +855,11 @@ public class WarManager {
         war.setBannerCarrierGuild(g.getTag());
         bannerCarriers.add(player.getUniqueId());
         setScale(player, 1.6);
+        // stały WP z ziemi niepotrzebny — live stream
         UUID oldWp = bannerWaypoints.remove(bannerId);
         if (oldWp != null) WaypointHook.removeWaypoint(oldWp);
-        UUID wp = WaypointHook.addGlobalWaypoint("Sztandar " + BannerItem.getFromGuild(helmet), player.getLocation(), 0xFF5555);
-        if (wp != null) bannerWaypoints.put(bannerId, wp);
+        String fromTag = BannerItem.getFromGuild(helmet);
+        WaypointHook.startGlobalLiveTrack(player, " SZTANDAR " + (fromTag != null ? fromTag : "?"));
         markDirty();
     }
 }

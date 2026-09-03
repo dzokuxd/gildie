@@ -106,6 +106,7 @@ public class GCommand implements CommandExecutor, TabCompleter {
                     pl.gildie.war.WarGui.openMain(player, guildManager, plugin.getWarManager());
                 }
             }
+            case "pp" -> handlePp(player);
             case "pomoc", "help" -> sendHelp(player);
             default -> {
                 player.sendMessage("§cNieznana komenda. Użyj §e/g pomoc");
@@ -136,7 +137,17 @@ public class GCommand implements CommandExecutor, TabCompleter {
         player.sendMessage("§e/g peryskop §7— widok z góry na teren gildii");
         player.sendMessage("§e/g sojusz §7— zarządzanie sojuszami");
         player.sendMessage("§e/g wojna §7— panel wojen (GUI)");
+        player.sendMessage("§e/g pp §7— ping lokalizacji do gildii (live WP)");
         player.sendMessage("§8§m--------------------------------");
+    }
+
+    /** /g pp — ping pomocy do gildii (WaypointAPI.helpPing) */
+    private void handlePp(Player player) {
+        if (!WaypointHook.isAvailable()) {
+            player.sendMessage("§cSystem waypointów niedostępny (ReiMinimap).");
+            return;
+        }
+        player.sendMessage(WaypointHook.helpPing(player));
     }
 
     private void handleCreate(Player player, String[] args) {
@@ -800,7 +811,7 @@ public class GCommand implements CommandExecutor, TabCompleter {
                     "zaloz", "zapros", "dolacz", "odrzuc", "opusc", "wyrzuc", "rozwiaz",
                     "info", "lista", "lider", "zastepca", "ustawdom", "dom",
                     "ustawbazawypadowa", "ubw", "bazawypadowa", "bw",
-                    "regeneruj", "panel", "peryskop", "p", "sojusz", "pomoc"
+                    "regeneruj", "panel", "peryskop", "p", "sojusz", "wojna", "pp", "pomoc"
             );
             String input = args[0].toLowerCase();
             return subs.stream().filter(s -> s.startsWith(input)).collect(Collectors.toList());
